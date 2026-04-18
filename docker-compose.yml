@@ -31,9 +31,17 @@ services:
     restart: unless-stopped
     depends_on:
       - wireguard
-    env_file:
-      - .env
     environment:
+      BOT_TOKEN: ${BOT_TOKEN:?BOT_TOKEN is required}
+      ADMIN_IDS: ${ADMIN_IDS:-}
+      WG_CONTAINER_NAME: ${WG_CONTAINER_NAME:-wireguard}
+      WG_INTERFACE: ${WG_INTERFACE:-wg0}
+      WG_SERVER_ENDPOINT: ${WG_SERVER_ENDPOINT:?WG_SERVER_ENDPOINT is required}
+      WG_SERVER_PORT: ${WG_SERVER_PORT:-51820}
+      WG_NETWORK: ${WG_NETWORK:-10.0.0.0/22}
+      WG_SERVER_IP: ${WG_SERVER_IP:-10.0.0.1}
+      WG_MAX_PEERS: ${WG_MAX_PEERS:-1000}
+      WG_DNS: ${WG_DNS:-1.1.1.1}
       DB_PATH: ${DB_PATH:-/data/vpn.db}
     volumes:
       - sqlite_data:/data
