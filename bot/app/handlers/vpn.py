@@ -170,7 +170,7 @@ async def on_list(
     if message.from_user is None:
         return
     user = await repo.get_user_by_telegram_id(session, message.from_user.id)
-    if user is None or not user.peers:
+    if user is None:
         peers = []
     else:
         peers = await repo.list_peers_for_user(session, user.id)
