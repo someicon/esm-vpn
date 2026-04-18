@@ -35,6 +35,19 @@ def _sanitize_name(raw: str) -> str | None:
     return name
 
 
+def _format_bytes(n: int) -> str:
+    if n <= 0:
+        return "0 B"
+    if n < 1024:
+        return f"{n} B"
+    x = float(n)
+    for unit in ("KiB", "MiB", "GiB", "TiB"):
+        x /= 1024
+        if x < 1024:
+            return f"{x:.2f} {unit}"
+    return f"{x:.2f} PiB"
+
+
 def _format_handshake(dt: datetime | None) -> str:
     if dt is None:
         return "never"
@@ -214,8 +227,15 @@ async def on_list(
         stored_dt = repo.as_utc(peer.last_handshake_at)
         candidates = [d for d in (runtime_dt, stored_dt) if d is not None]
         last = max(candidates) if candidates else None
+
+        rx_30, tx_30 = await repo.traffic_last_days(session, peer.id, days=30)
+        total_30 = rx_30 + tx_30
+        total_all = (peer.rx_total or 0) + (peer.tx_total or 0)
+
         lines.append(
-            f"- {peer.name}: {peer.assigned_ip} | last handshake: {_format_handshake(last)}"
+            f"• {peer.name} ({peer.assigned_ip})\n"
+            f"   handshake: {_format_handshake(last)}\n"
+            f"   30d: {_format_bytes(total_30)}  ·  all-time: {_format_bytes(total_all)}"
         )
     await message.answer("\n".join(lines))
 

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Peer, User
+from app.db.models import Peer, PeerTrafficDaily, User
 
 
 def as_utc(dt: datetime | None) -> datetime | None:
@@ -91,6 +91,64 @@ async def create_peer(
 async def delete_peer(session: AsyncSession, peer: Peer) -> None:
     await session.delete(peer)
     await session.flush()
+
+
+async def get_peer_by_pubkey(
+    session: AsyncSession, public_key: str
+) -> Peer | None:
+    stmt = select(Peer).where(Peer.public_key == public_key)
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def apply_traffic_delta(
+    session: AsyncSession,
+    peer: Peer,
+    rx_delta: int,
+    tx_delta: int,
+    day: date,
+) -> None:
+    """Bump lifetime totals and the daily bucket for (peer, day).
+
+    Callers are expected to have already computed a non-negative delta
+    (handling counter resets). Zero deltas are a no-op.
+    """
+    if rx_delta <= 0 and tx_delta <= 0:
+        return
+    rx_delta = max(rx_delta, 0)
+    tx_delta = max(tx_delta, 0)
+
+    peer.rx_total = (peer.rx_total or 0) + rx_delta
+    peer.tx_total = (peer.tx_total or 0) + tx_delta
+
+    stmt = select(PeerTrafficDaily).where(
+        PeerTrafficDaily.peer_id == peer.id,
+        PeerTrafficDaily.day == day,
+    )
+    bucket = (await session.execute(stmt)).scalar_one_or_none()
+    if bucket is None:
+        bucket = PeerTrafficDaily(
+            peer_id=peer.id, day=day, rx_bytes=rx_delta, tx_bytes=tx_delta
+        )
+        session.add(bucket)
+    else:
+        bucket.rx_bytes = (bucket.rx_bytes or 0) + rx_delta
+        bucket.tx_bytes = (bucket.tx_bytes or 0) + tx_delta
+
+
+async def traffic_last_days(
+    session: AsyncSession, peer_id: int, days: int
+) -> tuple[int, int]:
+    """Return (rx, tx) sum over the last `days` calendar days (UTC)."""
+    since = datetime.now(tz=timezone.utc).date() - timedelta(days=days - 1)
+    stmt = select(
+        func.coalesce(func.sum(PeerTrafficDaily.rx_bytes), 0),
+        func.coalesce(func.sum(PeerTrafficDaily.tx_bytes), 0),
+    ).where(
+        PeerTrafficDaily.peer_id == peer_id,
+        PeerTrafficDaily.day >= since,
+    )
+    row = (await session.execute(stmt)).one()
+    return int(row[0]), int(row[1])
 
 
 async def update_peer_handshakes(

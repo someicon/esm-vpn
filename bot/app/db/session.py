@@ -66,3 +66,8 @@ async def _apply_lightweight_migrations(conn) -> None:
         await conn.exec_driver_sql(
             "ALTER TABLE peers ADD COLUMN last_handshake_at DATETIME"
         )
+    for col in ("rx_total", "tx_total", "rx_last_seen", "tx_last_seen"):
+        if col not in existing:
+            await conn.exec_driver_sql(
+                f"ALTER TABLE peers ADD COLUMN {col} BIGINT NOT NULL DEFAULT 0"
+            )

@@ -1,8 +1,16 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import (
+    BigInteger,
+    Date,
+    DateTime,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -50,4 +58,45 @@ class Peer(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    # Lifetime byte counters, accumulated across kernel resets.
+    rx_total: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    tx_total: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    # Last counters read from the kernel; used to compute deltas between
+    # sync ticks and to detect resets (when current < last_seen).
+    rx_last_seen: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    tx_last_seen: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+
     user: Mapped[User] = relationship(back_populates="peers")
+    traffic_daily: Mapped[list["PeerTrafficDaily"]] = relationship(
+        back_populates="peer",
+        cascade="all, delete-orphan",
+    )
+
+
+class PeerTrafficDaily(Base):
+    __tablename__ = "peer_traffic_daily"
+    __table_args__ = (
+        UniqueConstraint("peer_id", "day", name="uq_traffic_peer_day"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    peer_id: Mapped[int] = mapped_column(
+        ForeignKey("peers.id", ondelete="CASCADE"), index=True
+    )
+    day: Mapped[date] = mapped_column(Date, index=True)
+    rx_bytes: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    tx_bytes: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+
+    peer: Mapped[Peer] = relationship(back_populates="traffic_daily")
