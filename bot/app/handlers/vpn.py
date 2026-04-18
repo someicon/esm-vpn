@@ -105,6 +105,9 @@ async def on_new(
         await message.answer(f"Failed to add peer on the VPN server: {exc}")
         return
 
+    # Everything after this point must either succeed, or roll back the WG peer
+    # so kernel state and DB state stay in sync. DbSessionMiddleware will roll
+    # back the DB session on its own when we re-raise.
     try:
         await repo.create_peer(
             session,
@@ -113,52 +116,54 @@ async def on_new(
             public_key=keypair.public_key,
             assigned_ip=str(ip_addr),
         )
+
+        try:
+            server_pub = await wg.server_public_key()
+        except WireGuardError as exc:
+            logger.warning("cannot fetch server pubkey from interface: %s", exc)
+            server_pub = ""
+            try:
+                server_pub = settings.wg_server_pubkey_path.read_text().strip()
+            except OSError:
+                pass
+
+        if not server_pub:
+            raise WireGuardError("server public key is unavailable")
+
+        config = build_client_config(
+            client_private_key=keypair.private_key,
+            client_ip=ip_addr,
+            dns=settings.wg_dns,
+            server_public_key=server_pub,
+            server_endpoint=settings.wg_server_endpoint,
+            peer_name=name,
+        )
+
+        await message.answer_document(
+            BufferedInputFile(config.text.encode("utf-8"), filename=config.filename),
+            caption=(
+                f"Peer '{name}' created.\n"
+                f"IP: {ip_addr}\n"
+                "The private key is NOT stored on the server; keep this file safe."
+            ),
+        )
+        await message.answer_photo(
+            BufferedInputFile(config.qr_png_bytes(), filename=f"{name}.png"),
+            caption="Scan this QR from the WireGuard mobile app to import the config.",
+        )
     except Exception:
-        # Roll back the runtime peer so DB and WG stay in sync.
+        logger.exception("peer creation failed after wg add; rolling back")
         try:
             await wg.remove_peer(keypair.public_key)
         except WireGuardError:
-            logger.exception("failed to rollback wg peer after DB error")
-        raise
-
-    try:
-        server_pub = await wg.server_public_key()
-    except WireGuardError as exc:
-        logger.warning("cannot fetch server pubkey from interface: %s", exc)
-        server_pub = ""
+            logger.exception("failed to rollback wg peer after handler error")
         try:
-            server_pub = settings.wg_server_pubkey_path.read_text().strip()
-        except OSError:
-            pass
-
-    if not server_pub:
-        await message.answer(
-            "Peer created, but the server public key is unavailable. "
-            "Check the wireguard container."
-        )
-        return
-
-    config = build_client_config(
-        client_private_key=keypair.private_key,
-        client_ip=ip_addr,
-        dns=settings.wg_dns,
-        server_public_key=server_pub,
-        server_endpoint=settings.wg_server_endpoint,
-        peer_name=name,
-    )
-
-    await message.answer_document(
-        BufferedInputFile(config.text.encode("utf-8"), filename=config.filename),
-        caption=(
-            f"Peer '{name}' created.\n"
-            f"IP: {ip_addr}\n"
-            "The private key is NOT stored on the server; keep this file safe."
-        ),
-    )
-    await message.answer_photo(
-        BufferedInputFile(config.qr_png_bytes(), filename=f"{name}.png"),
-        caption="Scan this QR from the WireGuard mobile app to import the config.",
-    )
+            await message.answer(
+                "Peer creation failed; the change was rolled back. Please try again."
+            )
+        except Exception:
+            logger.exception("failed to notify user about rollback")
+        raise
 
 
 @router.message(Command("list"))

@@ -29,7 +29,3 @@ async def generate_keypair() -> KeyPair:
     private = (await _run(["wg", "genkey"])).decode().strip()
     public = (await _run(["wg", "pubkey"], stdin=private.encode() + b"\n")).decode().strip()
     return KeyPair(private_key=private, public_key=public)
-
-
-async def generate_preshared_key() -> str:
-    return (await _run(["wg", "genpsk"])).decode().strip()

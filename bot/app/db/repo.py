@@ -43,11 +43,6 @@ async def get_peer_by_name(
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
-async def count_peers(session: AsyncSession) -> int:
-    stmt = select(Peer.id)
-    return len(list((await session.execute(stmt)).scalars().all()))
-
-
 async def all_assigned_ips(session: AsyncSession) -> set[str]:
     stmt = select(Peer.assigned_ip)
     return {row for row in (await session.execute(stmt)).scalars().all()}

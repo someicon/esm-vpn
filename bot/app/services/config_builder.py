@@ -26,7 +26,6 @@ def build_client_config(
     dns: str,
     server_public_key: str,
     server_endpoint: str,
-    preshared_key: str | None = None,
     peer_name: str = "wg",
     keepalive_seconds: int = 25,
 ) -> ClientConfig:
@@ -39,17 +38,11 @@ def build_client_config(
         "",
         "[Peer]",
         f"PublicKey = {server_public_key}",
+        "AllowedIPs = 0.0.0.0/0, ::/0",
+        f"Endpoint = {server_endpoint}",
+        f"PersistentKeepalive = {keepalive_seconds}",
+        "",
     ]
-    if preshared_key:
-        lines.append(f"PresharedKey = {preshared_key}")
-    lines.extend(
-        [
-            "AllowedIPs = 0.0.0.0/0, ::/0",
-            f"Endpoint = {server_endpoint}",
-            f"PersistentKeepalive = {keepalive_seconds}",
-            "",
-        ]
-    )
     text = "\n".join(lines)
     safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in peer_name) or "wg"
     return ClientConfig(text=text, filename=f"{safe_name}.conf")

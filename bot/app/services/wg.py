@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True, slots=True)
 class PeerStatus:
     public_key: str
-    preshared_key: str | None
     endpoint: str | None
     allowed_ips: str
     latest_handshake: int  # unix ts, 0 = never
@@ -80,23 +79,12 @@ class WireGuardService:
         *,
         public_key: str,
         allowed_ip: str,
-        preshared_key: str | None = None,
     ) -> None:
         cmd = [
             "wg", "set", self._interface,
             "peer", public_key,
             "allowed-ips", f"{allowed_ip}/32",
         ]
-        if preshared_key:
-            # `wg set` reads preshared keys from a file path. Use /dev/stdin via
-            # a shell so the PSK never touches disk.
-            shell_cmd = (
-                f"echo '{preshared_key}' | wg set {self._interface} "
-                f"peer {public_key} preshared-key /dev/stdin "
-                f"allowed-ips {allowed_ip}/32"
-            )
-            await self._exec(["sh", "-c", shell_cmd])
-            return
         await self._exec(cmd)
 
     async def remove_peer(self, public_key: str) -> None:
@@ -121,13 +109,11 @@ class WireGuardService:
             cols = line.split("\t")
             if len(cols) < 8:
                 continue
-            psk = cols[1] if cols[1] != "(none)" else None
             endpoint = cols[2] if cols[2] != "(none)" else None
             keepalive = cols[7] if cols[7] not in ("off", "(none)") else None
             peers.append(
                 PeerStatus(
                     public_key=cols[0],
-                    preshared_key=psk,
                     endpoint=endpoint,
                     allowed_ips=cols[3],
                     latest_handshake=int(cols[4] or 0),
