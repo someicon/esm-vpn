@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Rebuild both images from scratch (no cache) and restart the stack.
-set -euo pipefail
 
 cd "$(dirname "$0")"
 

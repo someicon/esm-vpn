@@ -49,3 +49,20 @@ async def init_db() -> None:
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _apply_lightweight_migrations(conn)
+
+
+async def _apply_lightweight_migrations(conn) -> None:
+    """Add columns introduced after the initial schema.
+
+    SQLite doesn't support `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, so we
+    inspect the table and add missing columns ourselves. Keeps the project
+    free of a full migration framework (Alembic) while still letting existing
+    DBs upgrade in place on the next start.
+    """
+    result = await conn.exec_driver_sql("PRAGMA table_info(peers)")
+    existing = {row[1] for row in result.fetchall()}
+    if "last_handshake_at" not in existing:
+        await conn.exec_driver_sql(
+            "ALTER TABLE peers ADD COLUMN last_handshake_at DATETIME"
+        )

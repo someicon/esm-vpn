@@ -44,5 +44,10 @@ class Peer(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # Persisted copy of the latest handshake time seen from the WG kernel
+    # session. Survives restarts of both the bot and the wireguard container.
+    last_handshake_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     user: Mapped[User] = relationship(back_populates="peers")

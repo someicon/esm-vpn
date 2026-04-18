@@ -35,11 +35,13 @@ def _sanitize_name(raw: str) -> str | None:
     return name
 
 
-def _format_handshake(ts: int) -> str:
-    if not ts:
+def _format_handshake(dt: datetime | None) -> str:
+    if dt is None:
         return "never"
-    delta = datetime.now(tz=timezone.utc) - datetime.fromtimestamp(ts, tz=timezone.utc)
+    delta = datetime.now(tz=timezone.utc) - dt
     seconds = int(delta.total_seconds())
+    if seconds < 0:
+        seconds = 0
     if seconds < 60:
         return f"{seconds}s ago"
     if seconds < 3600:
@@ -190,12 +192,29 @@ async def on_list(
         logger.warning("list: wg show failed: %s", exc)
         runtime = {}
 
+    # Persist any fresh handshake times so they survive wg container restarts.
+    updates: dict[str, datetime] = {
+        pk: datetime.fromtimestamp(status.latest_handshake, tz=timezone.utc)
+        for pk, status in runtime.items()
+        if status.latest_handshake > 0
+    }
+    if updates:
+        await repo.update_peer_handshakes(session, updates)
+
     lines = ["Your peers:"]
     for peer in peers:
         status = runtime.get(peer.public_key)
-        handshake = _format_handshake(status.latest_handshake) if status else "unknown"
+        runtime_dt: datetime | None = None
+        if status and status.latest_handshake > 0:
+            runtime_dt = datetime.fromtimestamp(
+                status.latest_handshake, tz=timezone.utc
+            )
+        # Use whichever is newest: live runtime value or the persisted one
+        # (persisted one matters after a wireguard container restart).
+        candidates = [d for d in (runtime_dt, peer.last_handshake_at) if d is not None]
+        last = max(candidates) if candidates else None
         lines.append(
-            f"- {peer.name}: {peer.assigned_ip} | last handshake: {handshake}"
+            f"- {peer.name}: {peer.assigned_ip} | last handshake: {_format_handshake(last)}"
         )
     await message.answer("\n".join(lines))
 

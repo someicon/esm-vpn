@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -74,4 +76,25 @@ async def create_peer(
 
 async def delete_peer(session: AsyncSession, peer: Peer) -> None:
     await session.delete(peer)
+    await session.flush()
+
+
+async def update_peer_handshakes(
+    session: AsyncSession,
+    updates: dict[str, datetime],
+) -> None:
+    """Persist the latest known handshake time for peers, keyed by public key.
+
+    Only moves `last_handshake_at` forward — an older kernel value (e.g. right
+    after a wireguard container restart, where the counter resets to 0) never
+    overwrites a newer stored value.
+    """
+    if not updates:
+        return
+    stmt = select(Peer).where(Peer.public_key.in_(updates.keys()))
+    peers = list((await session.execute(stmt)).scalars().all())
+    for peer in peers:
+        new_ts = updates[peer.public_key]
+        if peer.last_handshake_at is None or new_ts > peer.last_handshake_at:
+            peer.last_handshake_at = new_ts
     await session.flush()
