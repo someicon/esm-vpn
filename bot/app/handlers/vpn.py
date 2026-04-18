@@ -211,7 +211,8 @@ async def on_list(
             )
         # Use whichever is newest: live runtime value or the persisted one
         # (persisted one matters after a wireguard container restart).
-        candidates = [d for d in (runtime_dt, peer.last_handshake_at) if d is not None]
+        stored_dt = repo.as_utc(peer.last_handshake_at)
+        candidates = [d for d in (runtime_dt, stored_dt) if d is not None]
         last = max(candidates) if candidates else None
         lines.append(
             f"- {peer.name}: {peer.assigned_ip} | last handshake: {_format_handshake(last)}"

@@ -1,11 +1,25 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Peer, User
+
+
+def as_utc(dt: datetime | None) -> datetime | None:
+    """Promote a DB-read naive datetime to a UTC-aware one.
+
+    SQLite has no native tz support, so SQLAlchemy returns naive datetimes
+    even when the column is declared `DateTime(timezone=True)`. We always
+    store UTC, so attaching tzinfo on read is safe.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 async def get_or_create_user(
@@ -95,6 +109,7 @@ async def update_peer_handshakes(
     peers = list((await session.execute(stmt)).scalars().all())
     for peer in peers:
         new_ts = updates[peer.public_key]
-        if peer.last_handshake_at is None or new_ts > peer.last_handshake_at:
+        stored = as_utc(peer.last_handshake_at)
+        if stored is None or new_ts > stored:
             peer.last_handshake_at = new_ts
     await session.flush()
